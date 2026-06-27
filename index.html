@@ -162,6 +162,11 @@
             border-color: #667eea;
         }
 
+        .input-section input:disabled {
+            background: #f5f5f5;
+            cursor: not-allowed;
+        }
+
         .input-section input.correct {
             border-color: #4caf50;
             background: #f1f8f5;
@@ -359,7 +364,7 @@
     </div>
 
     <script>
-        const lessons = [
+        const lessonsData = [
             {
                 type: 'multiple-choice',
                 question: 'What does "Hola" mean in Spanish?',
@@ -438,35 +443,73 @@
             }
         ];
 
+        let lessons = [];
         let currentQuestion = 0;
         let score = 0;
         let answered = false;
         let selectedOption = null;
 
+        function normalizeText(text) {
+            return text
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[\u2018\u2019`]/g, "'");
+        }
+
+        function shuffleArray(array) {
+            const shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        function getAudioPath(spanish) {
+            const normalized = spanish
+                .toLowerCase()
+                .replace(/[¿?]/g, '')
+                .trim()
+                .replace(/\s+/g, '_');
+            return `sounds/${normalized}.ogg`;
+        }
+
+        function playSound(filename) {
+            const audio = new Audio(filename);
+            audio.play().catch(() => {
+                console.log(`Could not play ${filename}`);
+            });
+        }
+
         function startLesson() {
+            lessons = shuffleArray(lessonsData);
             displayQuestion();
         }
 
         function displayQuestion() {
             const question = lessons[currentQuestion];
             const progressPercent = ((currentQuestion + 1) / lessons.length) * 100;
-            
+
             document.getElementById('progressFill').style.width = progressPercent + '%';
             document.getElementById('progressText').textContent = `Question ${currentQuestion + 1} of ${lessons.length}`;
-            
+
             document.getElementById('questionType').textContent = question.type === 'multiple-choice' ? 'MULTIPLE CHOICE' : 'TYPE THE ANSWER';
             document.getElementById('questionText').textContent = question.question;
-            
+
             const feedback = document.getElementById('feedback');
             feedback.classList.remove('show', 'correct', 'incorrect');
-            
+
+            const translation = document.getElementById('translation');
+            translation.classList.remove('show');
+
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Check';
-            
+
             answered = false;
             selectedOption = null;
-            
+
             if (question.type === 'multiple-choice') {
                 displayMultipleChoice(question);
             } else {
@@ -478,13 +521,13 @@
             const inputSection = document.getElementById('inputSection');
             const optionsContainer = document.getElementById('optionsContainer');
             const audioButton = document.getElementById('audioButton');
-            
+
             inputSection.style.display = 'none';
             optionsContainer.style.display = 'grid';
             audioButton.style.display = 'flex';
-            
+
             optionsContainer.innerHTML = '';
-            
+
             question.options.forEach((option, index) => {
                 const optionDiv = document.createElement('div');
                 optionDiv.className = 'option';
@@ -492,8 +535,10 @@
                 optionDiv.onclick = () => selectOption(index);
                 optionsContainer.appendChild(optionDiv);
             });
-            
-            audioButton.onclick = () => speakText(question.spanish);
+
+            audioButton.onclick = () => {
+                playSound(getAudioPath(question.spanish));
+            };
         }
 
         function displayTypingQuestion(question) {
@@ -501,38 +546,42 @@
             const optionsContainer = document.getElementById('optionsContainer');
             const audioButton = document.getElementById('audioButton');
             const answerInput = document.getElementById('answerInput');
-            
+
             inputSection.style.display = 'block';
             optionsContainer.style.display = 'none';
             audioButton.style.display = 'flex';
-            
+
             answerInput.value = '';
+            answerInput.disabled = false;
             answerInput.classList.remove('correct', 'incorrect');
             answerInput.focus();
-            
+
             answerInput.onkeypress = (e) => {
                 if (e.key === 'Enter' && !document.getElementById('submitBtn').disabled) {
                     submitAnswer();
                 }
             };
-            
+
             answerInput.oninput = () => {
                 document.getElementById('submitBtn').disabled = answerInput.value.trim() === '';
             };
-            
-            audioButton.onclick = () => speakText(question.spanish);
+
+            audioButton.onclick = () => {
+                playSound(getAudioPath(question.spanish));
+            };
         }
 
         function selectOption(index) {
             const options = document.querySelectorAll('.option');
             options.forEach(opt => opt.classList.remove('selected'));
-            
+
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = false;
-            
+
             if (!answered) {
                 options[index].classList.add('selected');
                 selectedOption = index;
+                playSound('sounds/select.ogg');
             }
         }
 
@@ -541,21 +590,32 @@
                 nextQuestion();
                 return;
             }
-            
+
             const question = lessons[currentQuestion];
             const feedback = document.getElementById('feedback');
             let isCorrect = false;
-            
+
             if (question.type === 'multiple-choice') {
                 isCorrect = selectedOption === question.correct;
                 markMultipleChoice(isCorrect);
+                if (isCorrect) {
+                    playSound('sounds/correct.ogg');
+                } else {
+                    playSound('sounds/incorrect.ogg');
+                }
             } else {
                 const answerInput = document.getElementById('answerInput');
-                const userAnswer = answerInput.value.trim().toLowerCase();
-                isCorrect = userAnswer === question.correct;
+                const userAnswer = normalizeText(answerInput.value.trim());
+                const correctAnswer = normalizeText(question.correct);
+                isCorrect = userAnswer === correctAnswer;
                 markTypingQuestion(isCorrect);
+                if (isCorrect) {
+                    playSound('sounds/correct.ogg');
+                } else {
+                    playSound('sounds/incorrect.ogg');
+                }
             }
-            
+
             if (isCorrect) {
                 score++;
                 feedback.textContent = '✓ Correct!';
@@ -564,10 +624,10 @@
                 feedback.textContent = `✗ Incorrect. The correct answer is: ${question.spanish}`;
                 feedback.classList.add('show', 'incorrect');
             }
-            
+
             document.getElementById('translation').textContent = question.translation;
             document.getElementById('translation').classList.add('show');
-            
+
             document.getElementById('submitBtn').textContent = 'Next';
             answered = true;
         }
@@ -575,10 +635,10 @@
         function markMultipleChoice(isCorrect) {
             const options = document.querySelectorAll('.option');
             const question = lessons[currentQuestion];
-            
+
             options.forEach((option, index) => {
                 option.style.pointerEvents = 'none';
-                
+
                 if (index === question.correct) {
                     option.classList.add('correct');
                 } else if (index === selectedOption && !isCorrect) {
@@ -590,7 +650,7 @@
         function markTypingQuestion(isCorrect) {
             const answerInput = document.getElementById('answerInput');
             answerInput.disabled = true;
-            
+
             if (isCorrect) {
                 answerInput.classList.add('correct');
             } else {
@@ -600,7 +660,7 @@
 
         function nextQuestion() {
             currentQuestion++;
-            
+
             if (currentQuestion >= lessons.length) {
                 showCompletion();
             } else {
@@ -615,18 +675,12 @@
         function showCompletion() {
             document.getElementById('quizContainer').style.display = 'none';
             document.getElementById('completionScreen').classList.add('show');
-            
+
             const percentage = Math.round((score / lessons.length) * 100);
             document.getElementById('finalScore').textContent = `${percentage}%`;
             document.getElementById('totalQuestions').textContent = lessons.length;
             document.getElementById('correctAnswers').textContent = score;
             document.getElementById('accuracy').textContent = percentage + '%';
-        }
-
-        function speakText(text) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'es-ES';
-            speechSynthesis.speak(utterance);
         }
 
         document.getElementById('submitBtn').onclick = submitAnswer;
